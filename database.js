@@ -13,7 +13,7 @@ let collections = {
 // Flag to track if connection is complete
 let isConnected = false;
 
-const uri = "mongodb+srv://mansoor:defiDad@defimoniter.isghw.mongodb.net/?retryWrites=true&w=majority&appName=DefiMoniter";
+const uri = process.env.MONGO_URI;
 
 // Connect to MongoDB
 async function connectToDatabase() {
