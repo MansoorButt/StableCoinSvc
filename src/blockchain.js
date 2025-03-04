@@ -1,5 +1,5 @@
 const ethers = require("ethers")
-const abi = require("./abi.json")
+const abi = require("../abi.json")
 const { 
   saveDepositEvent, 
   saveAccount, 
