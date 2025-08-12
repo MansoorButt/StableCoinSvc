@@ -36,45 +36,60 @@ const getEventSignature = (eventName, abi) => {
 // Track all deposit events
 const trackDepositEvents = async (provider, contract) => {
   const eventSignature = getEventSignature('CollateralDeposited', abi);
-  
-  // Use the helper function to get the collection
   const depositsCollection = require('./database').getDepositCollection();
-  
-  // Get the latest block we've processed
-  const latestProcessedEvent = await depositsCollection.findOne({}, { sort: { blockNumber: -1 } })
-  const fromBlock = latestProcessedEvent ? latestProcessedEvent.blockNumber + 1 : 7754587
-  
-  const filter = {
-    address: contract.address,
-    topics: [ethers.utils.id(eventSignature)],
-    fromBlock: fromBlock,
-    toBlock: 'latest'
+
+  // Get the last processed block
+  const latestProcessedEvent = await depositsCollection.findOne({}, { sort: { blockNumber: -1 } });
+  let fromBlock = latestProcessedEvent ? latestProcessedEvent.blockNumber + 1 : 7754587;
+
+  const latestBlock = await provider.getBlockNumber();
+  const maxRange = 500;
+  let totalNewEvents = 0;
+
+  const contractInterface = new ethers.utils.Interface(abi);
+
+  while (fromBlock <= latestBlock) {
+    const toBlock = Math.min(fromBlock + maxRange, latestBlock);
+
+    const filter = {
+      address: contract.address,
+      topics: [ethers.utils.id(eventSignature)],
+      fromBlock,
+      toBlock
+    };
+
+    console.log(`Fetching deposit events from block ${fromBlock} to ${toBlock}...`);
+
+    try {
+      const logs = await provider.getLogs(filter);
+
+      for (const log of logs) {
+        const decodedLog = contractInterface.decodeEventLog('CollateralDeposited', log.data, log.topics);
+
+        const event = {
+          blockNumber: log.blockNumber,
+          transactionHash: log.transactionHash,
+          user: decodedLog.user,
+          amount: decodedLog.amount.toString(),
+          token: decodedLog.token,
+          timestamp: new Date().toISOString() // In production: fetch actual block timestamp
+        };
+
+        await saveDepositEvent(event);
+        await saveAccount(decodedLog.user);
+      }
+
+      totalNewEvents += logs.length;
+    } catch (error) {
+      console.error(`Error fetching logs from ${fromBlock} to ${toBlock}:`, error);
+    }
+
+    fromBlock = toBlock + 1;
   }
 
-  const logs = await provider.getLogs(filter);
-  const contractInterface = new ethers.utils.Interface(abi);
-  
-  for (const log of logs) {
-    const decodedLog = contractInterface.decodeEventLog('CollateralDeposited', log.data, log.topics);
-    
-    const event = {
-      blockNumber: log.blockNumber,
-      transactionHash: log.transactionHash,
-      user: decodedLog.user,
-      amount: decodedLog.amount.toString(),
-      token: decodedLog.token,
-      timestamp: new Date().toISOString() // In production, get actual block timestamp
-    }
-    
-    // Save to database
-    await saveDepositEvent(event)
-    
-    // Add unique accounts to our tracking list
-    await saveAccount(decodedLog.user)
-  }
-  
-  console.log(`Tracked and saved ${logs.length} new deposit events`)
-}
+  console.log(`Tracked and saved ${totalNewEvents} new deposit events`);
+};
+
 
 // Get contract constants
 const getContractConstants = async (contract) => {
